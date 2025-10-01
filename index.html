@@ -5,81 +5,329 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
   <title>Pong Vertical</title>
   <style>
-    html, body { margin:0; height:100%; background:#000; overscroll-behavior:none; }
-    #hud { position:fixed; top:12px; left:0; right:0; text-align:center; color:#fff; font:16px/1.2 sans-serif; }
-    canvas { display:block; width:100vw; height:100vh; }
-    .btn { position:fixed; bottom:14px; left:50%; transform:translateX(-50%); background:#111; color:#fff; border:1px solid #444; padding:10px 14px; border-radius:10px; }
+    html, body { 
+      margin:0; 
+      height:100%; 
+      background:#000; 
+      overscroll-behavior:none;
+      font-family: sans-serif;
+    }
+    
+    /* Экран выбора стола */
+    #tableSelection {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: #000;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      padding: 20px;
+      z-index: 100;
+    }
+    
+    #tableSelection h1 {
+      color: #fff;
+      font-size: 28px;
+      margin-bottom: 30px;
+      text-align: center;
+    }
+    
+    .tables-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 15px;
+      max-width: 400px;
+      width: 100%;
+    }
+    
+    .table-btn {
+      background: #1a1a1a;
+      border: 2px solid #333;
+      color: #fff;
+      padding: 30px 20px;
+      border-radius: 12px;
+      font-size: 18px;
+      cursor: pointer;
+      transition: all 0.3s;
+      position: relative;
+    }
+    
+    .table-btn:active {
+      transform: scale(0.95);
+    }
+    
+    .table-btn.free {
+      border-color: #4CAF50;
+      background: #1a2e1a;
+    }
+    
+    .table-btn.waiting {
+      border-color: #FFC107;
+      background: #2e2a1a;
+      animation: pulse 2s infinite;
+    }
+    
+    .table-btn.playing {
+      border-color: #f44336;
+      background: #2e1a1a;
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.6; }
+    }
+    
+    .table-status {
+      font-size: 12px;
+      margin-top: 8px;
+      display: block;
+    }
+    
+    .table-btn.free .table-status { color: #4CAF50; }
+    .table-btn.waiting .table-status { color: #FFC107; }
+    .table-btn.playing .table-status { color: #f44336; }
+    
+    /* Игровой экран */
+    #gameScreen {
+      display: none;
+    }
+    
+    #hud { 
+      position:fixed; 
+      top:12px; 
+      left:0; 
+      right:0; 
+      text-align:center; 
+      color:#fff; 
+      font:16px/1.2 sans-serif;
+      z-index: 10;
+    }
+    
+    canvas { 
+      display:block; 
+      width:100vw; 
+      height:100vh; 
+    }
+    
+    .btn { 
+      position:fixed; 
+      bottom:14px; 
+      left:50%; 
+      transform:translateX(-50%); 
+      background:#111; 
+      color:#fff; 
+      border:1px solid #444; 
+      padding:12px 24px; 
+      border-radius:10px;
+      font-size: 16px;
+      cursor: pointer;
+      z-index: 10;
+    }
+    
+    .btn:active {
+      transform: translateX(-50%) scale(0.95);
+    }
   </style>
 
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
-  <!-- ВАЖНО: ваш сервер Render -->
   <script src="https://pong-server-dl39.onrender.com/socket.io/socket.io.js"></script>
 </head>
 <body>
-  <div id="hud">Подключаемся…</div>
-  <canvas id="game"></canvas>
-  <button id="readyBtn" class="btn" style="display:none">Играть ещё раз</button>
+  <!-- Экран выбора стола -->
+  <div id="tableSelection">
+    <h1>Выберите стол для игры</h1>
+    <div class="tables-grid">
+      <button class="table-btn" data-table="table1">
+        Стол 1
+        <span class="table-status">Свободен</span>
+      </button>
+      <button class="table-btn" data-table="table2">
+        Стол 2
+        <span class="table-status">Свободен</span>
+      </button>
+      <button class="table-btn" data-table="table3">
+        Стол 3
+        <span class="table-status">Свободен</span>
+      </button>
+      <button class="table-btn" data-table="table4">
+        Стол 4
+        <span class="table-status">Свободен</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- Игровой экран -->
+  <div id="gameScreen">
+    <div id="hud">Подключаемся…</div>
+    <canvas id="game"></canvas>
+    <button id="readyBtn" class="btn" style="display:none">Вернуться к столам</button>
+  </div>
 
   <script>
-    const SERVER = "https://pong-server-dl39.onrender.com"; // например: https://pong-server.onrender.com
+    const SERVER = "https://pong-server-dl39.onrender.com";
     const socket = io(SERVER, { transports: ["websocket"] });
 
+    const tableSelection = document.getElementById('tableSelection');
+    const gameScreen = document.getElementById('gameScreen');
     const hud = document.getElementById('hud');
     const btn = document.getElementById('readyBtn');
     const canvas = document.getElementById('game');
     const ctx = canvas.getContext('2d');
 
-    function resize() { canvas.width = innerWidth; canvas.height = innerHeight; }
-    addEventListener('resize', resize); resize();
-
     let roomId = null;
-    let side = "top"; // "top" или "bottom"
+    let side = "top";
     let state = null;
+    let selectedTable = null;
 
-    socket.on('connect', () => { hud.textContent = 'Ищем соперника…'; });
-    socket.on('waiting', msg => { hud.textContent = msg; });
+    function resize() { 
+      canvas.width = innerWidth; 
+      canvas.height = innerHeight; 
+    }
+    addEventListener('resize', resize); 
+    resize();
+
+    // Обновление статуса столов
+    socket.on('tables_status', (status) => {
+      document.querySelectorAll('.table-btn').forEach(btn => {
+        const tableId = btn.dataset.table;
+        const statusText = btn.querySelector('.table-status');
+        
+        btn.className = 'table-btn';
+        
+        if (status[tableId] === 'free') {
+          btn.classList.add('free');
+          statusText.textContent = 'Свободен';
+          btn.disabled = false;
+        } else if (status[tableId] === 'waiting') {
+          btn.classList.add('waiting');
+          statusText.textContent = 'Ждёт игрока';
+          btn.disabled = false;
+        } else if (status[tableId] === 'playing') {
+          btn.classList.add('playing');
+          statusText.textContent = 'Занят';
+          btn.disabled = true;
+        }
+      });
+    });
+
+    // Выбор стола
+    document.querySelectorAll('.table-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const tableId = btn.dataset.table;
+        selectedTable = tableId;
+        socket.emit('join_table', tableId);
+        
+        tableSelection.style.display = 'none';
+        gameScreen.style.display = 'block';
+      });
+    });
+
+    socket.on('connect', () => { 
+      hud.textContent = 'Подключено'; 
+    });
+
+    socket.on('waiting', msg => { 
+      hud.textContent = msg; 
+    });
 
     socket.on('start', ({ room, sideOf }) => {
       roomId = room;
       side = sideOf[socket.id] || "top";
-      hud.textContent = 'Матч найден! 🏓';
+      hud.textContent = 'Игра началась! 🏓';
       btn.style.display = 'none';
     });
 
-    socket.on('state', s => { state = s; render(); });
-    socket.on('gameover', ({reason}) => { hud.textContent = 'Игра окончена: ' + reason; btn.style.display='block'; });
-    btn.onclick = () => location.reload();
+    socket.on('state', s => { 
+      state = s; 
+      render(); 
+    });
 
-    // УПРАВЛЕНИЕ: левый/правый «полэкрана» => влево/вправо
+    socket.on('gameover', ({reason, finalScore}) => { 
+      hud.textContent = reason;
+      btn.style.display = 'block';
+      
+      // Показываем финальный счёт
+      if (finalScore) {
+        setTimeout(() => {
+          hud.textContent = reason + ` (${finalScore.top}:${finalScore.bottom})`;
+        }, 100);
+      }
+    });
+
+    socket.on('error', (msg) => {
+      alert(msg);
+      tableSelection.style.display = 'flex';
+      gameScreen.style.display = 'none';
+    });
+
+    btn.onclick = () => {
+      roomId = null;
+      state = null;
+      tableSelection.style.display = 'flex';
+      gameScreen.style.display = 'none';
+      btn.style.display = 'none';
+    };
+
+    // УПРАВЛЕНИЕ
     let left=false, right=false;
     function emitInput() {
       if (!roomId) return;
       socket.emit('input', { room: roomId, left, right });
     }
+
     function handlePointer(x) {
       left  = x < innerWidth/2;
       right = !left;
       emitInput();
     }
-    addEventListener('touchstart', (e) => { handlePointer((e.touches[0]||e.changedTouches[0]).clientX); }, {passive:true});
-    addEventListener('touchmove',  (e) => { handlePointer((e.touches[0]||e.changedTouches[0]).clientX); }, {passive:true});
-    addEventListener('touchend',   () => { left=false; right=false; emitInput(); }, {passive:true});
-    addEventListener('mousedown',  (e) => { handlePointer(e.clientX); });
-    addEventListener('mousemove',  (e) => { if (e.buttons) handlePointer(e.clientX); });
-    addEventListener('mouseup',    () => { left=false; right=false; emitInput(); });
+
+    addEventListener('touchstart', (e) => { 
+      handlePointer((e.touches[0]||e.changedTouches[0]).clientX); 
+    }, {passive:true});
+
+    addEventListener('touchmove', (e) => { 
+      handlePointer((e.touches[0]||e.changedTouches[0]).clientX); 
+    }, {passive:true});
+
+    addEventListener('touchend', () => { 
+      left=false; 
+      right=false; 
+      emitInput(); 
+    }, {passive:true});
+
+    addEventListener('mousedown', (e) => { 
+      handlePointer(e.clientX); 
+    });
+
+    addEventListener('mousemove', (e) => { 
+      if (e.buttons) handlePointer(e.clientX); 
+    });
+
+    addEventListener('mouseup', () => { 
+      left=false; 
+      right=false; 
+      emitInput(); 
+    });
 
     function render() {
       if (!state) return;
       const W = canvas.width, H = canvas.height;
       ctx.clearRect(0,0,W,H);
 
-      // масштаб из серверных координат в пиксели
       const sx = W / state.w, sy = H / state.h;
       const Sx = (x)=> x * sx, Sy = (y)=> y * sy;
 
-      // горизонтальный пунктир по центру (для вертикального формата)
+      // пунктирная линия по центру
       ctx.fillStyle = "#222";
-      for (let x=0; x<W; x+=20) ctx.fillRect(x, H/2-2, 10, 4);
+      for (let x=0; x<W; x+=20) {
+        ctx.fillRect(x, H/2-2, 10, 4);
+      }
 
       // МЯЧ
       ctx.fillStyle = "#fff";
@@ -87,27 +335,29 @@
       ctx.arc(Sx(state.ball.x), Sy(state.ball.y), Math.max(3, state.ball.r * (sx+sy)/2), 0, Math.PI*2);
       ctx.fill();
 
-      // РАКЕТКИ (top/bottom)
+      // РАКЕТКИ
       const pm = state.paddle.margin, pw = state.paddle.w, ph = state.paddle.h;
-      // верхняя (по центру сверху)
       ctx.fillRect(Sx(state.p1.x - pw/2), Sy(pm), Sx(pw), Sy(ph));
-      // нижняя (по центру снизу)
       ctx.fillRect(Sx(state.p2.x - pw/2), Sy(state.h - pm - ph), Sx(pw), Sy(ph));
 
-      // СЧЁТ — маленький, серый, полупрозрачный, сбоку посередине
+      // СЧЁТ — по центру, крупный, полупрозрачный
       ctx.save();
-      ctx.globalAlpha = 0.5;
-      ctx.fillStyle = "#aaa";
-      ctx.font = Math.floor(H * 0.04) + "px sans-serif"; // маленький
-      ctx.textAlign = "left";
+      ctx.globalAlpha = 0.3;
+      ctx.fillStyle = "#fff";
+      ctx.font = `bold ${Math.floor(H * 0.15)}px sans-serif`;
+      ctx.textAlign = "center";
       ctx.textBaseline = "middle";
-      ctx.fillText(`${state.p1.score} : ${state.p2.score}`, Math.floor(W * 0.05), Math.floor(H / 2));
+      ctx.fillText(`${state.p1.score} : ${state.p2.score}`, W / 2, H / 2);
       ctx.restore();
     }
 
-    // Telegram Mini App — полноэкранно, если внутри Telegram
+    // Telegram Mini App
     const tg = window.Telegram?.WebApp;
-    if (tg) { try { tg.expand(); } catch(_){} }
+    if (tg) { 
+      try { 
+        tg.expand(); 
+      } catch(_){} 
+    }
   </script>
 </body>
 </html>
