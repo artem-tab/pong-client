@@ -239,7 +239,7 @@
     socket.on('start', ({ room, sideOf }) => {
       roomId = room;
       side = sideOf[socket.id] || "top";
-      hud.textContent = 'Игра началась! 🏓';
+      hud.style.display = 'none';
       btn.style.display = 'none';
     });
 
