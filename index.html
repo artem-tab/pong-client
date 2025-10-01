@@ -11,11 +11,8 @@
     .btn { position:fixed; bottom:14px; left:50%; transform:translateX(-50%); background:#111; color:#fff; border:1px solid #444; padding:10px 14px; border-radius:10px; }
   </style>
 
-  <!-- Telegram SDK (не мешает, даже если не в Telegram) -->
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
-
-  <!-- Socket.IO клиент с вашего сервера -->
-  <!-- ВАЖНО: замените YOUR_SERVER_URL на адрес веб-сервера (например, https://pong-server.onrender.com) -->
+  <!-- ВАЖНО: ваш сервер Render -->
   <script src="https://pong-server-dl39.onrender.com/socket.io/socket.io.js"></script>
 </head>
 <body>
@@ -24,9 +21,7 @@
   <button id="readyBtn" class="btn" style="display:none">Играть ещё раз</button>
 
   <script>
-    const SERVER = "https://pong-server-dl39.onrender.com"; // ← замените на ваш URL, например: https://pong-server.onrender.com
-
-    // Подключаемся к серверу
+    const SERVER = "https://pong-server-dl39.onrender.com"; // например: https://pong-server.onrender.com
     const socket = io(SERVER, { transports: ["websocket"] });
 
     const hud = document.getElementById('hud');
@@ -37,8 +32,8 @@
     function resize() { canvas.width = innerWidth; canvas.height = innerHeight; }
     addEventListener('resize', resize); resize();
 
-    let mySide = "left";
     let roomId = null;
+    let side = "top"; // "top" или "bottom"
     let state = null;
 
     socket.on('connect', () => { hud.textContent = 'Ищем соперника…'; });
@@ -46,7 +41,7 @@
 
     socket.on('start', ({ room, sideOf }) => {
       roomId = room;
-      mySide = sideOf[socket.id] || "left";
+      side = sideOf[socket.id] || "top";
       hud.textContent = 'Матч найден! 🏓';
       btn.style.display = 'none';
     });
@@ -55,52 +50,62 @@
     socket.on('gameover', ({reason}) => { hud.textContent = 'Игра окончена: ' + reason; btn.style.display='block'; });
     btn.onclick = () => location.reload();
 
-    // УПРАВЛЕНИЕ: верх экрана = вверх, низ = вниз (тач/мышь)
-    let up=false, down=false;
+    // УПРАВЛЕНИЕ: левый/правый «полэкрана» => влево/вправо
+    let left=false, right=false;
     function emitInput() {
       if (!roomId) return;
-      socket.emit('input', { room: roomId, up, down });
+      socket.emit('input', { room: roomId, left, right });
     }
-    addEventListener('touchstart', (e) => {
-      const y = (e.touches[0]||e.changedTouches[0]).clientY;
-      up = y < innerHeight/2; down = !up; emitInput();
-    }, {passive:true});
-    addEventListener('touchend', () => { up=false; down=false; emitInput(); }, {passive:true});
-    addEventListener('mousedown', (e) => { up = e.clientY < innerHeight/2; down = !up; emitInput(); });
-    addEventListener('mouseup', () => { up=false; down=false; emitInput(); });
+    function handlePointer(x) {
+      left  = x < innerWidth/2;
+      right = !left;
+      emitInput();
+    }
+    addEventListener('touchstart', (e) => { handlePointer((e.touches[0]||e.changedTouches[0]).clientX); }, {passive:true});
+    addEventListener('touchmove',  (e) => { handlePointer((e.touches[0]||e.changedTouches[0]).clientX); }, {passive:true});
+    addEventListener('touchend',   () => { left=false; right=false; emitInput(); }, {passive:true});
+    addEventListener('mousedown',  (e) => { handlePointer(e.clientX); });
+    addEventListener('mousemove',  (e) => { if (e.buttons) handlePointer(e.clientX); });
+    addEventListener('mouseup',    () => { left=false; right=false; emitInput(); });
 
     function render() {
       if (!state) return;
       const W = canvas.width, H = canvas.height;
       ctx.clearRect(0,0,W,H);
 
-      // Масштабируем серверное поле под экран
+      // масштаб из серверных координат в пиксели
       const sx = W / state.w, sy = H / state.h;
       const Sx = (x)=> x * sx, Sy = (y)=> y * sy;
 
-      // Пунктир по центру
+      // горизонтальный пунктир по центру (для вертикального формата)
       ctx.fillStyle = "#222";
-      for (let y=0;y<H;y+=20) ctx.fillRect(W/2-2, y, 4, 10);
+      for (let x=0; x<W; x+=20) ctx.fillRect(x, H/2-2, 10, 4);
 
-      // Мяч
+      // МЯЧ
       ctx.fillStyle = "#fff";
       ctx.beginPath();
       ctx.arc(Sx(state.ball.x), Sy(state.ball.y), Math.max(3, state.ball.r * (sx+sy)/2), 0, Math.PI*2);
       ctx.fill();
 
-      // Ракетки
+      // РАКЕТКИ (top/bottom)
       const pm = state.paddle.margin, pw = state.paddle.w, ph = state.paddle.h;
-      ctx.fillRect(Sx(pm), Sy(state.p1.y - ph/2), Sx(pw), Sy(ph)); // left
-      ctx.fillRect(Sx(state.w - pm - pw), Sy(state.p2.y - ph/2), Sx(pw), Sy(ph)); // right
+      // верхняя (по центру сверху)
+      ctx.fillRect(Sx(state.p1.x - pw/2), Sy(pm), Sx(pw), Sy(ph));
+      // нижняя (по центру снизу)
+      ctx.fillRect(Sx(state.p2.x - pw/2), Sy(state.h - pm - ph), Sx(pw), Sy(ph));
 
-      // Счёт
-      ctx.fillStyle = "#fff";
-      ctx.font = Math.floor(H*0.06) + "px sans-serif";
-      ctx.textAlign = "center";
-      ctx.fillText(`${state.p1.score} : ${state.p2.score}`, W/2, H*0.09);
+      // СЧЁТ — маленький, серый, полупрозрачный, сбоку посередине
+      ctx.save();
+      ctx.globalAlpha = 0.5;
+      ctx.fillStyle = "#aaa";
+      ctx.font = Math.floor(H * 0.04) + "px sans-serif"; // маленький
+      ctx.textAlign = "left";
+      ctx.textBaseline = "middle";
+      ctx.fillText(`${state.p1.score} : ${state.p2.score}`, Math.floor(W * 0.05), Math.floor(H / 2));
+      ctx.restore();
     }
 
-    // Telegram Mini App: развернуть на весь экран, если внутри Telegram
+    // Telegram Mini App — полноэкранно, если внутри Telegram
     const tg = window.Telegram?.WebApp;
     if (tg) { try { tg.expand(); } catch(_){} }
   </script>
