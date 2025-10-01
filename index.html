@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
+  <title>Pong Vertical</title>
+  <style>
+    html, body { margin:0; height:100%; background:#000; overscroll-behavior:none; }
+    #hud { position:fixed; top:12px; left:0; right:0; text-align:center; color:#fff; font:16px/1.2 sans-serif; }
+    canvas { display:block; width:100vw; height:100vh; }
+    .btn { position:fixed; bottom:14px; left:50%; transform:translateX(-50%); background:#111; color:#fff; border:1px solid #444; padding:10px 14px; border-radius:10px; }
+  </style>
+
+  <!-- Telegram SDK (не мешает, даже если не в Telegram) -->
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+
+  <!-- Socket.IO клиент с вашего сервера -->
+  <!-- ВАЖНО: замените YOUR_SERVER_URL на адрес веб-сервера (например, https://pong-server.onrender.com) -->
+  <script src="https://pong-server-dl39.onrender.com/socket.io/socket.io.js"></script>
+</head>
+<body>
+  <div id="hud">Подключаемся…</div>
+  <canvas id="game"></canvas>
+  <button id="readyBtn" class="btn" style="display:none">Играть ещё раз</button>
+
+  <script>
+    const SERVER = "YOUR_SERVER_URL"; // ← замените на ваш URL, например: https://pong-server.onrender.com
+
+    // Подключаемся к серверу
+    const socket = io(SERVER, { transports: ["websocket"] });
+
+    const hud = document.getElementById('hud');
+    const btn = document.getElementById('readyBtn');
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+
+    function resize() { canvas.width = innerWidth; canvas.height = innerHeight; }
+    addEventListener('resize', resize); resize();
+
+    let mySide = "left";
+    let roomId = null;
+    let state = null;
+
+    socket.on('connect', () => { hud.textContent = 'Ищем соперника…'; });
+    socket.on('waiting', msg => { hud.textContent = msg; });
+
+    socket.on('start', ({ room, sideOf }) => {
+      roomId = room;
+      mySide = sideOf[socket.id] || "left";
+      hud.textContent = 'Матч найден! 🏓';
+      btn.style.display = 'none';
+    });
+
+    socket.on('state', s => { state = s; render(); });
+    socket.on('gameover', ({reason}) => { hud.textContent = 'Игра окончена: ' + reason; btn.style.display='block'; });
+    btn.onclick = () => location.reload();
+
+    // УПРАВЛЕНИЕ: верх экрана = вверх, низ = вниз (тач/мышь)
+    let up=false, down=false;
+    function emitInput() {
+      if (!roomId) return;
+      socket.emit('input', { room: roomId, up, down });
+    }
+    addEventListener('touchstart', (e) => {
+      const y = (e.touches[0]||e.changedTouches[0]).clientY;
+      up = y < innerHeight/2; down = !up; emitInput();
+    }, {passive:true});
+    addEventListener('touchend', () => { up=false; down=false; emitInput(); }, {passive:true});
+    addEventListener('mousedown', (e) => { up = e.clientY < innerHeight/2; down = !up; emitInput(); });
+    addEventListener('mouseup', () => { up=false; down=false; emitInput(); });
+
+    function render() {
+      if (!state) return;
+      const W = canvas.width, H = canvas.height;
+      ctx.clearRect(0,0,W,H);
+
+      // Масштабируем серверное поле под экран
+      const sx = W / state.w, sy = H / state.h;
+      const Sx = (x)=> x * sx, Sy = (y)=> y * sy;
+
+      // Пунктир по центру
+      ctx.fillStyle = "#222";
+      for (let y=0;y<H;y+=20) ctx.fillRect(W/2-2, y, 4, 10);
+
+      // Мяч
+      ctx.fillStyle = "#fff";
+      ctx.beginPath();
+      ctx.arc(Sx(state.ball.x), Sy(state.ball.y), Math.max(3, state.ball.r * (sx+sy)/2), 0, Math.PI*2);
+      ctx.fill();
+
+      // Ракетки
+      const pm = state.paddle.margin, pw = state.paddle.w, ph = state.paddle.h;
+      ctx.fillRect(Sx(pm), Sy(state.p1.y - ph/2), Sx(pw), Sy(ph)); // left
+      ctx.fillRect(Sx(state.w - pm - pw), Sy(state.p2.y - ph/2), Sx(pw), Sy(ph)); // right
+
+      // Счёт
+      ctx.fillStyle = "#fff";
+      ctx.font = Math.floor(H*0.06) + "px sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillText(`${state.p1.score} : ${state.p2.score}`, W/2, H*0.09);
+    }
+
+    // Telegram Mini App: развернуть на весь экран, если внутри Telegram
+    const tg = window.Telegram?.WebApp;
+    if (tg) { try { tg.expand(); } catch(_){} }
+  </script>
+</body>
+</html>
